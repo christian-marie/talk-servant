@@ -1,0 +1,28 @@
+digraph G {
+    graph [dpi = 300];
+    nodesep=0.3;
+    ranksep=0.2;
+    margin=0.1;
+    ratio=0.75;
+    bgcolor=transparent;
+    node [shape=box3d, color=lightblue2, fontcolor=white];
+    edge [arrowsize=0.8, color=grey, arrowhead=none];
+    "Client 1" -> "/one";
+    "Client 2" -> "/one";
+    "Client 3" -> "/one";
+    "Client 4" -> "/one";
+    "Client 5" -> "/one";
+    "Client 6" -> "/one";
+    "Client 1" -> "/two";
+    "Client 2" -> "/two";
+    "Client 3" -> "/two";
+    "Client 4" -> "/two";
+    "Client 5" -> "/two";
+    "Client 6" -> "/two";
+    "Client 1" -> "/three";
+    "Client 2" -> "/three";
+    "Client 3" -> "/three";
+    "Client 4" -> "/three";
+    "Client 5" -> "/three";
+    "Client 6" -> "/three";
+}

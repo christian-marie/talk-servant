@@ -1,12 +1,14 @@
-MARKDOWNS=slides.md handout.md
+MARKDOWNS=$(wildcard *.md)
+DOTS=$(wildcard *.dot)
 PDFS=$(MARKDOWNS:md=pdf)
+PNGS=$(DOTS:dot=png)
 
-all: $(PDFS)
+all: $(PDFS) $(PNGS)
 clean:
-	rm -f $(PDFS)
+	rm -f $(PDFS) $(PNGS)
 
-slides.pdf: slides.md template.tex
-	pandoc -H template.tex --filter columnfilter.py -t beamer --highlight-style=haddock -s $< -o $@
+%.pdf: %.md template.tex $(PNGS)
+	pandoc -H template.tex --filter columnfilter.py -i -t beamer -s --highlight-style=espresso $< -o $@
 
-handout.pdf: handout.md
-	pandoc --template=handout.tex -V geometry:margin=1in -V papersize:"a4paper" --highlight-style=haddock --reference-links $< -o $@
+%.png: %.dot
+	dot -Tpng $< -o $@

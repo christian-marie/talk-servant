@@ -1,863 +1,597 @@
-% Round tripping balls
-% (with partial isomorphisms & Haskell)
+% Your Web Service as a Type
+% (Typing REST APIs with Servant)
 
-# What do I want to show you?
+# Most frameworks/languages share these problems.
 
-\fontsize{14}{14}\selectfont
+[columns]
 
-How to write better printer/parsers such that we \alert{type less},
-\alert{think less} and make \alert{fewer mistakes}.
+[column=0.5]
+
+*REST problems*
+
+* Explode in subtle ways
+* Complexity is becomes nightmare to maintain
+* Partially and/or inconsistently documented
+* Mix boilerplate with important business logic
 
 
-# Outline
+[column=0.5]
 
-. . .
+*Types can fix that!*
 
-1. Define problem
+* Explode in obvious ways
+* Provide a framework for development
+* Be a form of documentation, and have 100% coverage
+* Make generic programming an option
 
-. . .
+[/columns]
 
-2. Summarise paper
+# Types can fix that!
 
-. . .
+*Let's see how!*
 
-3. Build your own
 
-# What are we fixing?
+# APIs have shapes
 
-[alert=The problem]
+![Your API as a tree](tree.png)
 
-Writing isomorphic round-trip printer/parsers with the get/put idiom is redundant and
-error prone.
+# Types have shapes (type operators)
 
-[/alert]
+[columns]
 
-# What are we fixing?
+[column=0.5]
 
-## Given a datatype:
-```haskell
-data ReadRequest
-    = SimpleReadRequest   Address Time Time
-    | ExtendedReadRequest Address Time Time
-  deriving (Eq, Show)
-```
+*head :> tail*
 
-# What are we fixing?
+* For "joining edges"
+* Constructor for a type level non-empty list
+* Not directly inhabitable
 
-## Get/put, look familiar?
-```haskell
-class WireFormat a where
-    fromWire :: ByteString -> Either SomeException a
-    toWire   :: a -> ByteString
-```
+[column=0.5]
 
-# What are we fixing?
+*branch1 :<|> branch2*
 
-## Encoding (total)
-```haskell
+* For "branching"
+* Constructor for alternatives (disjunction)
+* Inhabitable via :<|>
 
-instance WireFormat ReadRequest where
-    toWire (SimpleReadRequest addr start end) =
-        packWithHeaderByte 0 addr start end
-    toWire (ExtendedReadRequest addr start end) =
-        packWithHeaderByte 1 addr start end
+[/columns]
 
-packWithHeaderByte :: Word8 -> Address -> Time -> Time
-                   -> ByteString
-packWithHeaderByte header addr start end =
-    let addr_bytes = toWire addr
-    in runPacking 25 $ do
-        putWord8 header
-        putBytes addr_bytes
-        putWord64LE start
-        putWord64LE end
-```
-# What are we fixing?
+[columns]
 
-## Decoding (partial)
-```haskell
-fromWire bs
-    | S.length bs /= 25 =
-        Left . SomeException $ userError "/= 25 bytes"
-    | otherwise = flip tryUnpacking bs $ do
-        header <- getWord8
-        addr_bytes <- getBytes 8
-        addr <- either (fail . show) return $
-            fromWire addr_bytes
-        start <- getWord64LE
-        end <- getWord64LE
-        case header of
-            0 -> return $
-                    SimpleReadRequest addr start end
-            1 -> return $
-                    ExtendedReadRequest addr start end
-            _ -> fail "invalid header byte"
-```
-
-# What are we fixing?
-
-## So, we test it and hope for the best:
+[column=0.5]
 
 ```haskell
-suite :: Spec
-suite = describe "WireFormat identity tests" $
-    prop "ReadRequest" (wireId :: ReadRequest -> Bool)
-
-wireId :: (Eq w, WireFormat w) => w -> Bool
-wireId op = id' op == op
-  where
-    id' = fromRight . fromWire . toWire
-    fromRight = either (error . show) id
+data (path :: k) :> a
+    deriving (Typeable)
+    infixr 9 :>
 ```
 
-# Why don't you...
-
-# Why don't you...
-
-* Stop whining and trust the libraries
-
-# Why don't you...
-
-* \sout{Stop whining and trust the libraries} \alert{Too flexible.}
-
-# Why don't you...
-
-* \sout{Stop whining and trust the libraries} \alert{Too flexible.}
-* Use template haskell/generics
-
-# Why don't you...
-
-* \sout{Stop whining and trust the libraries} \alert{Too flexible.}
-* \sout{Use template haskell/generics} \alert{Not flexible enough.}
-
-# Introducing: Enterprise JSON
-
-. . .
-
-## "datetime"
-```json
-"27/6/2013 10:29 pm"
-```
-
-. . .
-
-## "date"
-
-```json
-"12/12/2012"
-```
-. . .
-
-## "mmdddate"
-
-```json
-"12/12"
-```
-. . .
-
-## "mmyydate"
-
-```json
-"12/2012"
-```
-
-OR
-
-```json
-"12.2012"
-```
-
-OR
-
-```json
-"122012"
-```
-
-# Introducing: Enterprise JSON
-
-## "checkbox"
-
-```json
-"T"
-
-```
-. . .
-
-## "currency", "currency2" and "poscurrency"
-
-```json
-"00.03"
-```
-. . .
-
-## "posfloat", "nonnegfloat"
-
-```json
-"2.718281828459045"
-```
-
-# Introducing: Enterprise JSON
-
-![Concern for sanity](concerned.png)
-
-# A wild paper appears!
-
-![](paper.png)\newline
-
-# Invertible Syntax Descriptions: way of the get/put
-
-## Given a datatype:
-```haskell
-data List a
-  = Nil
-  | Cons a (List a)
-```
-
-# Invertible Syntax Descriptions: way of the get/put
-
-## Printing$^1$
+[column=0.5]
 
 ```haskell
-type Printer a = a -> Doc
-
-printMany :: Printer a -> Printer (List a)
-printMany p list
-  = case list of
-    Nil       -> text ""
-    Cons x xs -> p x
-              <> printMany p xs
+data a :<|> b = a :<|> b
+    deriving (Typeable, Eq, Show)
+infixr 8 :<|>
 ```
 
-. . .
+[/columns]
 
-## Parsing$^2$
-```haskell
-parseMany :: Parser a -> Parser (List a)
-parseMany p
-  =  const Nil <$> text ""
- <|> Cons      <$> p
-               <*> parseMany p
-```
+# APIs have shapes
 
-# Invertible Syntax Descriptions: way of the get/put
+![Your API as a tree](tree.png)
 
-## It would be nice if...
+# Shape as a type!
 
 ```haskell
-combined :: Unicorn x => x a -> x (List a)
-combined p
-  =  magic Nil <$> fairies ""
- <|> Cons      <$> p
-               <*> parseMany p
+
+type MakeCard =
+    "card"
+    :> QueryFlag "loud"
+    :> ReqBody '[FormUrlEncoded, JSON] Name
+    :> Post '[JSON] PersonalisedCard
+
+type RandomInt =
+    "random_number" :> Get '[JSON] Int
+
+type CardAPI = "v1.0.0" :> (MakeCard :<|> RandomInt)
 ```
+# How would a typed API even work?
 
-# Invertible Syntax Descriptions: co/contravariance
+Before we can type the APIs, I have to explain some "fundamentals":
 
-[block=Parser fmap]
+* DataKinds
+* PolyKinds
+* GHC.TypeLits
+* Data.Proxy
+* TypeFamilies
+
+# Data.Proxy
+
+## Proxy: 
 
 ```haskell
-newtype Parser a = Parser (String -> [(a, String)])
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE DataKinds #-}
 
-(<$>) :: (a -> b) -> Parser a -> Parser b
+import Data.Proxy
+import GHC.TypeLits
+
+-- | A concrete, poly-kinded proxy type  
+data Proxy a = Proxy
+
+stringProxy :: Proxy "I AM A TYPE-LEVEL STRING!"
+stringProxy = Proxy
+
+listProxy :: Proxy '[Int, Bool, String]
+listProxy = Proxy
+
+symbolVal :: KnownSymbol str => Proxy str -> String
 ```
 
-[/block]
+# Type families
 
-. . .
+* Just functions at the type level
+* We will use them in the associated form (appearing in a type  class).
+* These are called "associated type synonyms".
+* They are a specific case of top-level "open" or "closed" type families, but
+  give better errors and are clearer in their intentions.
 
-[alert=Printer fmap]
+# Silly type family example
+
+## Associated type family
 
 ```haskell
-type Printer a = a -> Doc
+{-# LANGUAGE TypeFamilies #-}
 
-(<$>) :: (b -> a) -> Printer a -> Printer b
+class Frobable a where
+  type FrobingResult a -- Associated type synonym
+
+  frob :: Proxy a -> FrobingResult a
 ```
 
-[/alert]
+# Silly type family example
 
-# Invertible Syntax Descriptions: co/contravariance
-## Partial Iso$^3$ (academia decoded)
+## Some uninhabitable types
 
 ```haskell
-data Iso a b = Iso
-    { apply   :: a -> Maybe b
-    , unapply :: b -> Maybe a
-    }
+data EatsBools
+data MeaningOfLife
+
+widget :: Proxy (EatsBools :> MeaningOfLife)
+widget = Proxy
 ```
 
-# Invertible Syntax Descriptions: co/contravariance
-
-[block=Parser fmap]
+# Silly type family example
+## Some instances
 
 ```haskell
-newtype Parser a = Parser (String -> [(a, String)])
+instance Frobable rem
+  => Frobable (EatsBools :> rem) where
+  type FrobResult (EatsBools :> rem) =
+    Bool -> Maybe (FrobResult rem)
 
-(<$>) :: (a -> b) -> Parser a -> Parser b
+  frob :: Proxy (EatsBools :> rem)
+       -> FrobResult (EatsBools :> rem)
+  frob _ True = Just $ frob (Proxy :: Proxy rem)
+  frob _ False = Nothing
+
+instance Frobable MeaningOfLife where
+  type FrobResult MeaningOfLife = Int
+
+  frob :: Proxy MeaningOfLife
+       -> FrobResult MeaningOfLife
+  frob _ = 42
 ```
 
-[/block]
+# The results
 
-. . .
-
-[alert=Printer fmap]
+## GHCI
 
 ```haskell
-type Printer a = a -> Doc
+> :t frob
+frob :: Frobable a => Proxy a -> FrobResult a
 
-(<$>) :: (b -> a) -> Printer a -> Printer b
+> :t widget
+widget :: Proxy (EatsBools :> MeaningOfLife)
+
+> :t frob widget
+frob widget :: FrobResult (EatsBools :> MeaningOfLife)
+
+> let x = frob widget
+> :t x
 ```
 
-[/alert]
-
-. . .
-
-[block=The solution: IsoFunctor\$^4\$ ]
+# The results
+## GHCI
 
 ```haskell
-class IsoFunctor f where
-  (<$>) :: Iso a b -> f a -> f b
+> :t frob
+frob :: Frobable a => Proxy a -> FrobResult a
+
+> :t widget
+widget :: Proxy (EatsBools :> MeaningOfLife)
+
+> :t frob widget
+frob widget :: FrobResult (EatsBools :> MeaningOfLife)
+
+> let x = frob widget
+> :t x
+x :: Bool -> Maybe Int
+
+> frob widget True
 ```
 
-[/block]
-
-# Invertible Syntax Descriptions: co/contravariance
-
-The important things about partial isos and IsoFunctor:
-
-* Unifying functor requires both functions $a \to b$ and $b \to a$
-* We unify both in a partial Iso, where these functions can fail
-* We defined IsoFunctor (from partial isos to printer/parsers)
-
-# Invertible Syntax Descriptions: applicative
-
-[block=Normal applicative]
+# The results
+## GHCI
 
 ```haskell
-(<*>) :: f (a -> b) -> f a -> f  b
+> :t frob
+frob :: Frobable a => Proxy a -> FrobResult a
 
-instance Applicative Parser where
-  (<*>) :: Parser (a -> b) -> Parser a -> Parser b
+> :t widget
+widget :: Proxy (EatsBools :> MeaningOfLife)
+
+> :t frob widget
+frob widget :: FrobResult (EatsBools :> MeaningOfLife)
+
+> let x = frob widget
+> :t x
+x :: Bool -> Maybe Int
+
+> frob widget True
+Just 42
 ```
 
-[/block]
+# Recap
 
-. . .
+* APIs are painful, we now apply type band-aids to the owie.
+* The tree-like shape of your API can be expressed with types.
+* XXX TODO Something about type families/proxy
 
-[block=Adapting that directly]
+# Ugly server boilerplate
+
+API server code is often ugly because it often mixes business logic with...
+
+* Parsing/printing
+* Web server code 
+* HTTP bits
+
+# Types help us do the things better
+
+Let's see if we can express our business logic by itself, and cram all of the
+boiler plate into instances somewhere.
+
+# Unwravelling the types one step at a time
+
+## HasServer: A type class with associated type
 
 ```haskell
-class UnhelpfulIsoApplicative where
-  (<*>) :: f (Iso a b) -> f a -> f b
+class HasServer layout where
+  type Server layout :: *
+  route :: Proxy layout
+        -> Server layout
+        -> RoutingApplication
 ```
 
-[/block]
+# Unwravelling the types one step at a time
 
-. . .
-
-[alert=Falls apart on Printer (the contravariant one)]
+## Alternative server instance
 
 ```haskell
-type Printer a = a -> Doc
+instance (HasServer a, HasServer b) =>
+        HasServer (a :<|> b) where
 
-instance Applicative Printer where
-  (<*>) :: (Iso a b -> Doc) -> (a -> Doc) -> b -> Doc
-  (f <*> g) b = error "impossible!"
+  type Server (a :<|> b) = Server a :<|> Server b
+
+  route Proxy (a :<|> b) request respond =
+    route pa a request $ \ mResponse ->
+      if isMismatch mResponse
+        then route pb b request $ \mResponse' ->
+                respond (mResponse <> mResponse')
+        else respond mResponse
+
+    where pa = Proxy :: Proxy a
+          pb = Proxy :: Proxy b
 ```
+# Unwravelling the types one step at a time
 
-[/alert]
-
-# Invertible Syntax Descriptions: applicative
-
-## Normal applicative
-```haskell
-class Functor f => Applicative f where
-  (<*>) :: f (a -> b) -> f a -> f b
-```
-
-. . .
-
-## *#!@ it, associate right and tuple (ProductFunctor$^5$)
+## Query parameter instance
 
 ```haskell
-class ProductFunctor f where
-  infixr 6 <*>
-  (<*>) :: f a -> f b -> f (a, b)
-```
+instance (KnownSymbol sym, FromText a, HasServer sub)
+      => HasServer (QueryParam sym a :> sub) where
 
-# Invertible Syntax Descriptions: applicative
+  type Server (QueryParam sym a :> sub) =
+    Maybe a -> Server sub
 
-## Normal (currying applicative, left associative)
-
-```haskell
-f :: Applicative f
-  => (a -> b -> c -> d)
-  -> f a -> f b -> f c -> f d
-f ctor fa fb fc =   ctor <$> fa  <*> fb  <*> fc
-f ctor fa fb fc = ((ctor <$> fa) <*> fb) <*> fc
-```
-
-. . .
-
-## Our new, alternate universe
-
-```haskell
-f :: (ProductFunctor f, IsoFunctor f)
-  => Iso (a, (b, c)) d
-  -> f a -> f b -> f c -> f d
-f ctor fa fb fc = ctor <$>  fa <*> fb  <*> fc
-f ctor fa fb fc = ctor <$> (fa <*> (fb <*> fc))
-```
-
-# Invertible Syntax Descriptions: applicative
-
-## We want these tuple tree isos for our data types
-
-```haskell
-nil  :: Iso ()          (List a)
-cons :: Iso (a, List a) (List a)
-```
-
-. . .
-
-## So we magic them up from the data type:
-```haskell
-data List a
-  = Nil
-  | Cons a (List a)
-
-defineIsomorphisms ''List
-```
-
-# Invertible Syntax Descriptions: applicative
-
-The important things about ProductFunctor:
-
-* Naively adapting Applicative leaves us with an uninhabitable type.
-* We use ProductFunctor, it has tuples instead of currying and associates
-  right
-* <*> mushes tuples together one way, and takes them apart the other
-
-# Invertible Syntax Descriptions: alternative
-
-## Alternative$^6$ is trivial
-```haskell
-class Alternative where
-  (<|>) :: f a -> f a -> f a
-```
-
-## And we now have an abstract Syntax$^7$
-```haskell
-
-class (IsoFunctor s, ProductFunctor s, Alternative s)
-       => Syntax s where
-  pure :: Eq a => a -> s a
-```
-
-# Invertible Syntax Descriptions: the punchline
-
-## Parsing
-```haskell
-parseMany :: Parser a -> Parser (List a)
-parseMany p
-  =  const Nil <$> text ""
- <|> Cons      <$> p
-               <*> parseMany p
-```
-
-## Printing
-```haskell
-printMany :: (a -> Doc) -> (List a -> Doc)
-printMany p list
-  = case list of
-    Nil       -> text ""
-    Cons x xs -> p x
-              <> printMany p xs
-```
-
-# Invertible Syntax Descriptions: the punchline
-
-## Invertible many
-```haskell
-many :: Syntax s => s a -> s (List a)
-many p
-  =  nil  <$> pure ()
- <|> cons <$> p <*> many p
-```
-
-# Invertible Syntax Descriptions: printer syntax
-
-## The implementation of Syntax for Printer
-```haskell
-instance IsoFunctor Printer where
-  iso <$> Printer p
-    = Printer (\b -> unapply iso b >>= p)
-
-instance ProductFunctor Printer where
-  Printer p <*> Printer q
-    = Printer (\(x, y) -> liftM2 (++) (p x) (q y))
-
-instance Alternative Printer where
-  Printer p <|> Printer q
-    = Printer (\s -> mplus (p s) (q s))
-
-instance Syntax Printer where
-  pure x
-    = Printer (\y -> if x == y then Just "" else N...)
-```
-
-# Invertible Syntax Descriptions: summary
-
-* Partial isos: composable building blocks for munging data
-* IsoFunctor: to "lift" theses isos into concrete printers or parsers
-* ProductFunctor: to handle multiple fields and recursion via tuples
-* Syntax: to glue all these constraints together and add pure
-
-# Let's try it on enterprise JSON!
-
-![We are now enterprise developers](dog.jpg)
-
-# Let's try it on enterprise JSON!
-
-## Two primitives for all your JSON needs:
-
-```haskell
-class Syntax s => JsonSyntax s where
-    runSub :: s v -> s Value -> s v
-
-    value :: s Value
-```
-
-# JsonBuilder/Parser IsoFunctor
-
-## Starts off simple
-``` haskell
-newtype JsonBuilder a = JsonBuilder
-  { runBuilder :: a -> Maybe Value }
-
-newtype JsonParser a = JsonParser
-  { runParser :: Value -> Maybe a }
-
-instance IsoFunctor JsonBuilder where
-  (<$>) :: Iso a b -> JsonBuilder a -> JsonBuilder b
-  i <$> JsonBuilder b = JsonBuilder $ unapply i >=> b
-
-instance IsoFunctor JsonParser where
-  (<$>) :: Iso a b -> JsonParser a -> JsonParser b
-  i <$> JsonParser p = JsonParser $ apply i <=< p
-```
-# JsonBuilder ProductFunctor
-
-## Mush tuples together with applicative when building
-
-```haskell
-instance ProductFunctor JsonBuilder where
-  (<*>) :: JsonBuilder a
-        -> JsonBuilder b
-        -> JsonBuilder (a,b)
-  JsonBuilder p <*> JsonBuilder q =
-    JsonBuilder $ \(a,b) -> do
-      a' <- p a
-      b' <- q b
-      merge a' b'
+  route Proxy subserver req respond = do
+    let query = parseQueryText $ rawQueryString req
+        paramname = cs $ symbolVal ps
+        param = fmap fromText
+              . join $ lookup paramname query
+    route (Proxy :: Proxy sub)
+          (subserver param)
+          request respond
     where
-      merge (Object a) (Object b) =
-      	Just . Object $ a `union` b
-      merge a (Array b) = Just . Array $ V.cons a b
-      merge x Null = Just x
-      merge Null x = Just x
-      merge _ _ = Nothing
+      ps = Proxy :: Proxy sym
 ```
 
-# JsonParser ProductFunctor
+# Unwravelling the types one step at a time
 
-## Take the things apart and tuple them when parsing
-```haskell
-instance ProductFunctor JsonParser where
-  (<*>) :: JsonParser a -> JsonParser b -> JsonParser (a,b)
-  JsonParser p <*> JsonParser q =
-    JsonParser $ \v -> do
-      let (a,b) | Array x <- v, Just y <- x !? 0
-                = (y, Array $ V.tail x)
-                | Array _ <- v
-       	        = (Null, Null)
-                | otherwise
-      	        = (v,v)
-      liftM2 (,) (p a) (q b)
-```
-
-# JsonBuilder/Parser Alternative
-
-
-## Try one, otherwise the other. Same implementation.
-```haskell
-instance Alternative JsonBuilder where
-  (<||>) :: JsonBuilder a -> JsonBuilder a -> JsonBuilder a
-  JsonBuilder p <||> JsonBuilder q =
-    JsonBuilder $ \a -> p a `mplus` q a
-
-  empty :: JsonBuilder a
-  empty = JsonBuilder $ const Nothing
-
-instance Alternative JsonParser where
-  (<||>) :: JsonParser a -> JsonParser a -> JsonParser a
-  JsonParser p <||> JsonParser q =
-    JsonParser $ \v -> p v `mplus` q v
-
-  empty :: JsonParser a
-  empty = JsonParser $ const Nothing
-```
-
-
-# JsonBuilder/Parser JsonSyntax
-## Providing access to underlying JSON Values
-```haskell
-instance JsonSyntax JsonBuilder where
-  value :: JsonBuilder Value
-  value = JsonBuilder Just
-
-  runSub :: JsonBuilder v
-         -> JsonBuilder Value
-         -> JsonBuilder v
-  runSub (JsonBuilder a) (JsonBuilder b) =
-    JsonBuilder $ a >=> b
-
-instance JsonSyntax JsonParser where
-  value = JsonParser Just
-
-  runSub (JsonParser a) (JsonParser b) =
-    JsonParser $ a <=< b
-```
-
-# JsonSyntax combinators
-
-## Review/preview
-```haskell
-preview :: Prism' a b -> a -> Maybe b
-review  :: Prism' a b -> b -> a
-```
-# Prisms/isos are "stronger" than partial isos
-
-## Demoting prisms and "real" isos
-```haskell
-demote :: Prism' a b -> Iso a b
-demote p = unsafeMakeIso (preview p)
-                         (review (_Just . p))
-```
-
-# JsonSyntax combinators
-
-## Combinators come together
+## Terminal Delete instance
 
 ```haskell
-_Bool :: Prism' Value Bool
+instance HasServer Delete where
+  type Server Delete = EitherT (Int, String) IO ()
 
-demote _Bool :: Iso Value Bool
-
-value :: s Value
-
-(<$>) :: Iso Value Bool -> s Value -> s Bool
-
-
-jsonBool :: JsonSyntax s => s Bool
-jsonBool = demote _Bool <$> value
-
+  route Proxy action request respond
+    | pathIsEmpty request
+    && requestMethod request == methodDelete = do
+        e <- runEitherT action
+        . . .
 ```
 
-. . .
+# Remember our types?
+
+## Our api-as-a-type
+```haskell
+type MakeCard =
+    "card"
+    :> QueryFlag "loud"
+    :> ReqBody '[FormUrlEncoded, JSON] Name
+    :> Post '[JSON] PersonalisedCard
+
+type RandomInt =
+    "random_number" :> Get '[JSON] Int
+
+type CardAPI = "v1.0.0" :> (MakeCard :<|> RandomInt)
+```
+
+# Seperate printing/parsing code
+
+## Instances for printing/parsing
+```haskell
+instance ToFormUrlEncoded Name where
+    toFormUrlEncoded (Name full) =
+      [("full_name", full)]
+
+instance FromFormUrlEncoded Name where
+    fromFormUrlEncoded [("full_name", full)] =
+      Right $ Name full
+    fromFormUrlEncoded _ =
+      Left "specify full_name"
+
+instance FromJSON PersonalisedCard
+instance ToJSON PersonalisedCard
+
+instance FromJSON Name
+instance ToJSON Name
+```
+
+# We can now business logic cleanly
+
+## Server in a slide
+```haskell
+server :: Server CardAPI
+server = makeCard :<|> randomNumber
+
+makeCard :: Monad m
+         => Bool -> Name -> m PersonalisedCard 
+makeCard loud (Name full_name) =
+    return . PersonalisedCard $
+      if loud
+        then "HELLO " <> toUpper full_name <> "!!1"
+        else "Hello " <> full_name <> "."
+
+randomNumber :: Monad m => m Int
+randomNumber = return 4
+```
+
+# API type to documentation.
+
+## Define some instances for HasDocs
 
 ```haskell
-jsonNumber :: JsonSyntax s => s Scientific
-jsonNumber = demote _Number <$> value
+docs :: HasDocs layout => Proxy layout -> API                                   
 
-jsonString :: JsonSyntax s => s Text
-jsonString = demote _String <$> value
+
+instance ToParam (QueryFlag "loud") where
+  toParam _ =
+    DocQueryParam "loud"
+                  ["true", "false"]
+                  "Get the personalised card loudly.\
+                  \ Default is false."
+                  Normal
 ```
 
-# JsonSyntax combinators
+# API type to documentation.
 
-## Looking up keys in objects
+## Define some more instances
+
 
 ```haskell
-runSub :: s v -> s Value -> s v
+instance ToSample Int where
+  toSample = Just 4 -- Fair dice roll
 
-jsonField
-    :: JsonSyntax s
-    => Text
-    -- ^ Key to lookup/insert
-    -> s v
-    -- ^ Sub-parser
-    -> s v
-jsonField k syntax = runSub syntax (keyIso <$> value)
-  where
-    keyIso = demote $ prism' (\x -> Object [(k,x)])
-                             (^? key k)
+instance ToSample Name where
+  toSample = Just $ Name "Hubert Cumberdale"
+
+instance ToSample PersonalisedCard where
+  toSamples =
+    [ ("If you use ?loud",
+      , PersonalisedCard "HELLO, HUBERT CUMBERDALE!!1")
+    , ("If you do not use ?loud"
+      , PersonalisedCard "Hello, Hubert Cumberdale.")
+    ]
 ```
 
-# JsonSyntax combinators
+# Markdown the things
 
-## When you want to ensure something is there
+## Given an API we can get an API (terrible name)
 
 ```haskell
-is :: (JsonSyntax s, Eq a) => s a -> a -> s ()
-is s a = demote (prism' (const a) 
-                        (guard . (a ==))) <$> s
+docs :: HasDocs layout => Proxy layout -> API                                   
+
+markdown :: API -> String
 ```
 
-# JsonSyntax summary
+# GET /v1.0.0/random_numbers
 
-* JsonSyntax: to provide access to the underlying domain specific data
-* Prisms are stronger than partial isos
-* lens-aeson made it easy to define JSON combinators
+#### Response:
 
-# Example - Round-tripping balls
+- Status code 200
 
-![A happy ball](tripping.jpg)
+- Supported content types are:
 
-# Example - Round-tripping balls
+    - `application/json`
 
-## We can have either bouncy or lumpy balls
+- Response body as below.
+
+```javascript
+[4]
+```
+
+# POST /v1.0.0/card
+
+#### GET Parameters:
+
+- loud
+     - **Values**: *true, false*
+     - **Description**: Get the personalised card loudly. Default is false.
+
+# POST /v1.0.0/card
+
+#### Request:
+
+- Supported content types are:
+
+    - `application/x-www-form-urlencoded`
+    - `application/json`
+
+- Example: `application/x-www-form-urlencoded`
+
+```
+full_name=Hubert%20Cumberdale
+```
+
+- Example: `application/json`
+
+```javascript
+{"_nameFull":"Hubert Cumberdale"}
+```
+
+# POST /v1.0.0/card
+
+#### Response:
+
+- Status code 201
+
+- Supported content types are:
+
+    - `application/json`
+
+- If you use ?loud
+
+```javascript
+{"_cardBody":"HELLO, HUBERT CUMBERDALE!!1"}
+```
+
+- If you do not use ?loud
+
+```javascript
+{"_cardBody":"Hello, Hubert Cumberdale."}
+```
+
+# Clients for free (tackling complexity)
+
+Consider an unversioned API that has:
+
+* Three breaking changes
+* Six users
+
+How many changes must you make to fix all of the things?
+
+# Clients for free (tackling complexity)
+
+![Complexity to maintain](square.png)
+
+# Client types
+
+## Given an API, we can generate a Client
+```haskell
+client
+  :: HasClient layout => Proxy layout -> Client layout                     
+```
+
+## The magic
+```haskell
+class HasClient layout where
+  type Client layout :: *
+  clientWithRoute
+    :: Proxy layout -> Req -> Client layout
+
+
+  instance (HasClient a, HasClient b)
+        => HasClient (a :<|> b) where               
+    type Client (a :<|> b) = Client a :<|> Client b                               
+    clientWithRoute Proxy req =                                                   
+      clientWithRoute (Proxy :: Proxy a) req :<|>                                 
+      clientWithRoute (Proxy :: Proxy b) req   
+```
+
+# Client types
+
+## "Client" was distributed over "Alternative" (:<|>)
 
 ```haskell
-data Ball
-    = Lumpy Text [[Bool]]
-    | Bouncy Double
-  deriving (Eq, Show)
+createCard
+    :: Bool
+    -> Name
+    -> BaseUrl
+    -> EitherT ServantError IO PersonalisedCard
+
+getDice
+    :: BaseUrl
+    -> EitherT ServantError IO [Int]
+
+(createCard :<|> getDice) = client cardApi
 ```
+ 
+# API type to type safe URLs
 
-##  Bouncy balls are happy, lumpy ones are not.
-
-```json
-[{ "colour" : "Rainbow"
- , "lumps"  : [[true,false]
-              ,[false,false]]
- , ":D"     : false
- },
- { ":D"     : true,
-   "bouncyness" : 3.14159265358979
- }]
-```
-
-# Example - Round-tripping balls
-
-## Ball syntax
+## Given a slightly intimidating type signature
 
 ```haskell
-data Ball
-    = Lumpy Text [[Bool]]
-    | Bouncy Double
-  deriving (Eq, Show)
-  defineIsomorphisms ''Ball
-
-ballSyntax :: JsonSyntax s => s Ball
-ballSyntax
-  =  lumpy <$> jsonField ":D" (jsonBool `is` False)
-            *> jsonField "colour" jsonString
-           <*> jsonField "lumps" (many $ many jsonBool)
- <|> bouncy
-           <$> jsonField ":D" (jsonBool `is` True)
-            *> jsonField "bouncyness" jsonRealFloat
+safeLink
+    :: forall endpoint api. ( IsElem endpoint api
+                            , HasLink endpoint)
+    => Proxy api
+    -> Proxy endpoint
+    -> MkLink endpoint
 ```
 
-# Example - Round-tripping balls
+# API type to type safe URLs
 
-## The test
+## We can generate safe links
 
 ```haskell
-main :: IO ()
-main = do
-    let tony  = Lumpy "Rainbow"
-                      [[True, False], [False, False]]
-    let oscar = Bouncy pi
-    let pit   = [tony, oscar]
+let nums = Proxy :: Proxy ("v1.0.0" :> RandomInts)
+print $ safeLink cardApi nums 
 
-    let Just blob = runBuilder (many ballSyntax) pit
-    L.putStrLn $ encode blob
 
-    let Just pit' = runParser (many ballSyntax) blob
-    print pit'
-    print $ pit == pit'
+let make_card = Proxy :: Proxy ("v1.0.0" :> MakeCard)
+print $ safeLink cardApi make_card True
 ```
 
-# Example - Round-tripping balls
+>> v1.0.0/random_numbers
+>> v1.0.0/card?loud
 
-## Output (whitespace added)
+# Conclusion
 
-```json
-[{ "colour" : "Rainbow"
- , "lumps"  : [[true,false]
-              ,[false,false]]
- , ":D"     : false
- },
- { ":D"     : true,
-   "bouncyness" : 3.14159265358979
- }]
-
-[ Lumpy "Rainbow" [[True,False],[False,False]]
-, Bouncy 3.141592653589793
-]
-
-True
-```
-
-# Real world example with full library
-
-## Currency parser
-```haskell
--- | Parse an enterprise currency field, which is a blob of text looking like:
---
---   "00.43"
---
--- This un-/parser retains all precision avaliable.
-currency :: JsonSyntax s => s Scientific
-currency = demoteLR "enterprise currency" (prism' f g) <$> value
-  where
-    f = String . LT.toStrict . LT.toLazyText . fmt
-    g = readMaybe . ST.unpack . ST.filter (not . isSpace) <=< preview _String
-    -- We render with arbitrary precision (Nothing) with standard decimal
-    -- notation (Fixed)
-    fmt = LT.formatScientificBuilder Fixed Nothing
-```
-
-# Real world example with full library
-
-## Date time parser
-
-```haskell
--- | Parse an enterprise datetime field, which is looks like:
---
---    "20/6/2014 4:25 pm"
-datetime :: JsonSyntax s => s UTCTime
-datetime = demoteLR "enterprise datetime" (prism' f g) <$> value
-  where
-    f = String . ST.pack . opts formatTime
-    g = opts parseTime . ST.unpack <=< preview _String
-    opts h = h defaultTimeLocale "%-d/%-m/%Y %-l:%M %P"
-```
-
-# Summary/Conclusion
-
-* Invertible syntax descriptions are a way to write better printer/parsers such
-  that we \alert{type less}, \alert{think less} and make \alert{fewer
-  mistakes}.
-* Problem: writing round-trip printer/parsers with the get/put idiom is
-  \alert{redundant and error prone}.
-* Generics/TH \alert{too rigid}, libraries \alert{too flexible}.
-* A reasonable middle ground is detailed in the paper by \alert{Tillmann Rendel
-  and Klaus Ostermann}. \alert{Invertible Syntax Descriptions}: Unifying
-  Parsing and Pretty Printing.
-* I'd love to work with people on improving the current machinery.
-* Our library: http://github.com/anchor/roundtrip-aeson
-
-# A note on categories
-
-## Ekmett's "categories" package, more category-like functors.
-
-```haskell
-import qualified Control.Categorical.Functor as CF
-
-type Hask = (->)
-
-instance CF.Functor JsonBuilder Iso Hask where
-    fmap iso (JsonBuilder f) =
-        JsonBuilder (unapply iso >=> f)
-```
+* Web services have problems, types fix some
+* By defining your API as a type, you can get:
+	- Server boilerplate
+	- Documentation
+	- Clients (Haskell, jquery, PureScript)
+	- Safe links

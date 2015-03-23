@@ -1,0 +1,12 @@
+digraph G {
+    graph [dpi = 300];
+    nodesep=0.3;
+    ranksep=0.2;
+    margin=0.1;
+    ratio=0.75;
+    bgcolor=transparent;
+    node [shape=box3d, color=lightblue2, fontcolor=white];
+    edge [arrowsize=0.8, color=grey, arrowhead=none];
+    "/v1.0.0" -> "/card" -> "?loud" -> "POST body (user_name=\"Hubert\")" -> "POST response (returning personalised card)";
+    "/v1.0.0" -> "/random_numbers" -> "GET response (returning numbers)";
+}
