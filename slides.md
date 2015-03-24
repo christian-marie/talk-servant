@@ -1,7 +1,23 @@
 % Your Web Service as a Type
 % (Typing REST APIs with Servant)
 
-# Most frameworks/languages share these problems.
+# Every time we write a REST API
+
+Your API will...
+
+* Explode in subtle ways
+* Boilerplate gets mixed with important business logic
+* Complexity becomes nightmare to maintain
+* Becomes partially and/or inconsistently documented
+
+# Servant is...
+
+* A collection of libraries built around the concept of typed APIs.
+* n devs
+* n commercial users
+* About to hit a 0.3 release with some major improvements.
+
+# Your API wants types
 
 [columns]
 
@@ -10,9 +26,9 @@
 *REST problems*
 
 * Explode in subtle ways
-* Complexity is becomes nightmare to maintain
-* Partially and/or inconsistently documented
-* Mix boilerplate with important business logic
+* Boilerplate gets mixed with important business logic
+* Complexity becomes nightmare to maintain
+* Becomes partially and/or inconsistently documented
 
 
 [column=0.5]
@@ -20,15 +36,20 @@
 *Types can fix that!*
 
 * Explode in obvious ways
-* Provide a framework for development
-* Be a form of documentation, and have 100% coverage
 * Make generic programming an option
+* Provide a framework for complexity
+* Provide documentation, with 100% coverage
 
 [/columns]
 
-# Types can fix that!
+# How do you even?
 
-*Let's see how!*
+How do we represent our API as a type?
+
+First, let's look at it like a tree:
+
+* Leaves are endpoints (GET, POST, etc)
+* Nodes along the way to leaves "modify" that endpoint.
 
 
 # APIs have shapes
@@ -43,7 +64,7 @@
 
 *head :> tail*
 
-* For "joining edges"
+* For joining nodes
 * Constructor for a type level non-empty list
 * Not directly inhabitable
 
@@ -51,7 +72,7 @@
 
 *branch1 :<|> branch2*
 
-* For "branching"
+* For branching
 * Constructor for alternatives (disjunction)
 * Inhabitable via :<|>
 
@@ -102,18 +123,13 @@ Before we can type the APIs, I have to explain some "fundamentals":
 
 * DataKinds
 * PolyKinds
-* GHC.TypeLits
 * Data.Proxy
+* GHC.TypeLits
 * TypeFamilies
 
-# Data.Proxy
-
-## Proxy: 
+# DataKinds, PolyKinds, Proxy & TypeLits
 
 ```haskell
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE DataKinds #-}
-
 import Data.Proxy
 import GHC.TypeLits
 
@@ -129,7 +145,7 @@ listProxy = Proxy
 symbolVal :: KnownSymbol str => Proxy str -> String
 ```
 
-# Type families
+# TypeFamilies
 
 * Just functions at the type level
 * We will use them in the associated form (appearing in a type  class).
@@ -139,35 +155,31 @@ symbolVal :: KnownSymbol str => Proxy str -> String
 
 # Silly type family example
 
-## Associated type family
-
 ```haskell
-{-# LANGUAGE TypeFamilies #-}
 
 class Frobable a where
   type FrobingResult a -- Associated type synonym
 
   frob :: Proxy a -> FrobingResult a
+
+data MeaningOfLife
+
+instance Frobable MeaningOfLife where
+  type FrobResult MeaningOfLife = Int
+
+  frob :: Proxy MeaningOfLife -> FrobResult MeaningOfLife
+  frob _ = 42
 ```
 
 # Silly type family example
-
-## Some uninhabitable types
 
 ```haskell
 data EatsBools
-data MeaningOfLife
 
 widget :: Proxy (EatsBools :> MeaningOfLife)
 widget = Proxy
-```
 
-# Silly type family example
-## Some instances
-
-```haskell
-instance Frobable rem
-  => Frobable (EatsBools :> rem) where
+instance Frobable rem => Frobable (EatsBools :> rem) where
   type FrobResult (EatsBools :> rem) =
     Bool -> Maybe (FrobResult rem)
 
@@ -176,17 +188,9 @@ instance Frobable rem
   frob _ True = Just $ frob (Proxy :: Proxy rem)
   frob _ False = Nothing
 
-instance Frobable MeaningOfLife where
-  type FrobResult MeaningOfLife = Int
-
-  frob :: Proxy MeaningOfLife
-       -> FrobResult MeaningOfLife
-  frob _ = 42
 ```
 
 # The results
-
-## GHCI
 
 ```haskell
 > :t frob
@@ -203,27 +207,6 @@ frob widget :: FrobResult (EatsBools :> MeaningOfLife)
 ```
 
 # The results
-## GHCI
-
-```haskell
-> :t frob
-frob :: Frobable a => Proxy a -> FrobResult a
-
-> :t widget
-widget :: Proxy (EatsBools :> MeaningOfLife)
-
-> :t frob widget
-frob widget :: FrobResult (EatsBools :> MeaningOfLife)
-
-> let x = frob widget
-> :t x
-x :: Bool -> Maybe Int
-
-> frob widget True
-```
-
-# The results
-## GHCI
 
 ```haskell
 > :t frob
@@ -238,33 +221,29 @@ frob widget :: FrobResult (EatsBools :> MeaningOfLife)
 > let x = frob widget
 > :t x
 x :: Bool -> Maybe Int
-
-> frob widget True
-Just 42
 ```
 
 # Recap
 
-* APIs are painful, we now apply type band-aids to the owie.
+* APIs are painful, we are currently trying to apply the type band-aids.
 * The tree-like shape of your API can be expressed with types.
-* XXX TODO Something about type families/proxy
+* Adding Type families and Proxies allow us to take an API type and manipulate
+  it into another type, as we please.
 
 # Ugly server boilerplate
 
-API server code is often ugly because it often mixes business logic with...
+Ugly server code often tries to business logic whilst...
 
 * Parsing/printing
-* Web server code 
-* HTTP bits
+* Web servering
+* HTTPing
 
 # Types help us do the things better
 
 Let's see if we can express our business logic by itself, and cram all of the
 boiler plate into instances somewhere.
 
-# Unwravelling the types one step at a time
-
-## HasServer: A type class with associated type
+# HasServer, a dumping ground for boilerplate
 
 ```haskell
 class HasServer layout where
@@ -272,11 +251,18 @@ class HasServer layout where
   route :: Proxy layout
         -> Server layout
         -> RoutingApplication
+
+instance HasServer Delete where
+  type Server Delete = EitherT (Int, String) IO ()
+
+  route Proxy action request respond
+    | pathIsEmpty request
+    && requestMethod request == methodDelete = do
+        e <- runEitherT action
+        . . .
 ```
 
-# Unwravelling the types one step at a time
-
-## Alternative server instance
+# Distribute your alternatives
 
 ```haskell
 instance (HasServer a, HasServer b) =>
@@ -294,16 +280,14 @@ instance (HasServer a, HasServer b) =>
     where pa = Proxy :: Proxy a
           pb = Proxy :: Proxy b
 ```
-# Unwravelling the types one step at a time
 
-## Query parameter instance
+# Unwravelling the type one step at a time
 
 ```haskell
 instance (KnownSymbol sym, FromText a, HasServer sub)
       => HasServer (QueryParam sym a :> sub) where
 
-  type Server (QueryParam sym a :> sub) =
-    Maybe a -> Server sub
+  type Server (QueryParam sym a :> sub) = Maybe a -> Server sub
 
   route Proxy subserver req respond = do
     let query = parseQueryText $ rawQueryString req
@@ -313,28 +297,11 @@ instance (KnownSymbol sym, FromText a, HasServer sub)
     route (Proxy :: Proxy sub)
           (subserver param)
           request respond
-    where
-      ps = Proxy :: Proxy sym
+          . . .
 ```
 
-# Unwravelling the types one step at a time
+# But how does the content-typing work?
 
-## Terminal Delete instance
-
-```haskell
-instance HasServer Delete where
-  type Server Delete = EitherT (Int, String) IO ()
-
-  route Proxy action request respond
-    | pathIsEmpty request
-    && requestMethod request == methodDelete = do
-        e <- runEitherT action
-        . . .
-```
-
-# Remember our types?
-
-## Our api-as-a-type
 ```haskell
 type MakeCard =
     "card"
@@ -348,30 +315,25 @@ type RandomInt =
 type CardAPI = "v1.0.0" :> (MakeCard :<|> RandomInt)
 ```
 
-# Seperate printing/parsing code
+# We seperate handling of content types
 
-## Instances for printing/parsing
 ```haskell
 instance ToFormUrlEncoded Name where
     toFormUrlEncoded (Name full) =
       [("full_name", full)]
 
 instance FromFormUrlEncoded Name where
-    fromFormUrlEncoded [("full_name", full)] =
-      Right $ Name full
-    fromFormUrlEncoded _ =
-      Left "specify full_name"
+    fromFormUrlEncoded xs =
+        Name <$> note "specify full_name" (lookup "full_name" xs)
 
 instance FromJSON PersonalisedCard
 instance ToJSON PersonalisedCard
 
-instance FromJSON Name
-instance ToJSON Name
+. . . 
 ```
 
-# We can now business logic cleanly
+# Business logic is now isolated
 
-## Server in a slide
 ```haskell
 server :: Server CardAPI
 server = makeCard :<|> randomNumber
@@ -390,11 +352,8 @@ randomNumber = return 4
 
 # API type to documentation.
 
-## Define some instances for HasDocs
-
 ```haskell
 docs :: HasDocs layout => Proxy layout -> API                                   
-
 
 instance ToParam (QueryFlag "loud") where
   toParam _ =
@@ -402,12 +361,10 @@ instance ToParam (QueryFlag "loud") where
                   ["true", "false"]
                   "Get the personalised card loudly.\
                   \ Default is false."
-                  Normal
+                  Flag
 ```
 
-# API type to documentation.
-
-## Define some more instances
+# Type errors will make you define instances
 
 
 ```haskell
@@ -426,9 +383,7 @@ instance ToSample PersonalisedCard where
     ]
 ```
 
-# Markdown the things
-
-## Given an API we can get an API (terrible name)
+# Now you can markdown the things
 
 ```haskell
 docs :: HasDocs layout => Proxy layout -> API                                   
@@ -436,72 +391,13 @@ docs :: HasDocs layout => Proxy layout -> API
 markdown :: API -> String
 ```
 
-# GET /v1.0.0/random_numbers
+# Converted to HTML
 
-#### Response:
+![Auto-generated docs](big.png)
 
-- Status code 200
+# Converted to HTML
 
-- Supported content types are:
-
-    - `application/json`
-
-- Response body as below.
-
-```javascript
-[4]
-```
-
-# POST /v1.0.0/card
-
-#### GET Parameters:
-
-- loud
-     - **Values**: *true, false*
-     - **Description**: Get the personalised card loudly. Default is false.
-
-# POST /v1.0.0/card
-
-#### Request:
-
-- Supported content types are:
-
-    - `application/x-www-form-urlencoded`
-    - `application/json`
-
-- Example: `application/x-www-form-urlencoded`
-
-```
-full_name=Hubert%20Cumberdale
-```
-
-- Example: `application/json`
-
-```javascript
-{"_nameFull":"Hubert Cumberdale"}
-```
-
-# POST /v1.0.0/card
-
-#### Response:
-
-- Status code 201
-
-- Supported content types are:
-
-    - `application/json`
-
-- If you use ?loud
-
-```javascript
-{"_cardBody":"HELLO, HUBERT CUMBERDALE!!1"}
-```
-
-- If you do not use ?loud
-
-```javascript
-{"_cardBody":"Hello, Hubert Cumberdale."}
-```
+![Auto-generated docs (zoomed to request)](zoomed.png)
 
 # Clients for free (tackling complexity)
 
@@ -516,15 +412,31 @@ How many changes must you make to fix all of the things?
 
 ![Complexity to maintain](square.png)
 
-# Client types
+# Writing clients, the lazy way
 
-## Given an API, we can generate a Client
+```haskell
+createCard
+    :: Bool
+    -> Name
+    -> BaseUrl
+    -> EitherT ServantError IO PersonalisedCard
+
+getDice
+    :: BaseUrl
+    -> EitherT ServantError IO [Int]
+
+(createCard :<|> getDice) = client cardApi
+```
+
+# How could such a magical unicorn exist?
+
 ```haskell
 client
   :: HasClient layout => Proxy layout -> Client layout                     
 ```
 
-## The magic
+# The magic: distribute (:<|>)
+
 ```haskell
 class HasClient layout where
   type Client layout :: *
@@ -540,9 +452,7 @@ class HasClient layout where
       clientWithRoute (Proxy :: Proxy b) req   
 ```
 
-# Client types
-
-## "Client" was distributed over "Alternative" (:<|>)
+# Clients for free!
 
 ```haskell
 createCard
@@ -557,10 +467,8 @@ getDice
 
 (createCard :<|> getDice) = client cardApi
 ```
- 
-# API type to type safe URLs
 
-## Given a slightly intimidating type signature
+# Type safe URLs
 
 ```haskell
 safeLink
@@ -571,26 +479,40 @@ safeLink
     -> MkLink endpoint
 ```
 
-# API type to type safe URLs
-
-## We can generate safe links
+# With input!
 
 ```haskell
 let nums = Proxy :: Proxy ("v1.0.0" :> RandomInts)
 print $ safeLink cardApi nums 
-
-
-let make_card = Proxy :: Proxy ("v1.0.0" :> MakeCard)
-print $ safeLink cardApi make_card True
 ```
 
+. . . 
+
+```
 >> v1.0.0/random_numbers
+```
+
+. . . 
+
+```haskell
+
+let make_card = Proxy :: Proxy ("v1.0.0" :> MakeCard)
+let f :: Bool -> URI = safeLink cardApi make_card
+traverse_ print [f True, f False]
+```
+
+. . . 
+
+
+```
 >> v1.0.0/card?loud
+>> v1.0.0/card
+```
 
 # Conclusion
 
-* Web services have problems, types fix some
-* By defining your API as a type, you can get:
+* Types and webservices can be friends
+* By defining your API as a type, you can get for free:
 	- Server boilerplate
 	- Documentation
 	- Clients (Haskell, jquery, PureScript)

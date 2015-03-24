@@ -1,19 +1,3 @@
-## GET /random_numbers
-
-#### Response:
-
-- Status code 200
-
-- Supported content types are:
-
-    - `application/json`
-
-- Response body as below.
-
-```javascript
-[4]
-```
-
 ## POST /v1.0.0/card
 
 #### GET Parameters:
@@ -21,6 +5,7 @@
 - loud
      - **Values**: *true, false*
      - **Description**: Get the personalised card loudly. Default is false.
+     - This parameter is a **flag**. This means no value is expected to be associated to this parameter.
 
 
 #### Request:
@@ -62,25 +47,20 @@ full_name=Hubert%20Cumberdale
 {"_cardBody":"Hello, Hubert Cumberdale."}
 ```
 
-# Clients for free
+## GET /v1.0.0/random_numbers
 
-## Given an API we can generate a Client
-```haskell
-client :: HasClient layout => Proxy layout -> Client layout                     
+#### Response:
+
+- Status code 200
+
+- Supported content types are:
+
+    - `application/json`
+
+- Response body as below.
+
+```javascript
+[4]
 ```
 
-## This works via some magic
-```haskell
-class HasClient layout where
-  type Client layout :: *
-  clientWithRoute :: Proxy layout -> Req -> Client layout
 
-
-  instance (HasClient a, HasClient b) => HasClient (a :<|> b) where               
-    type Client (a :<|> b) = Client a :<|> Client b                               
-    clientWithRoute Proxy req =                                                   
-      clientWithRoute (Proxy :: Proxy a) req :<|>                                 
-      clientWithRoute (Proxy :: Proxy b) req   
-```
-
-# Clients for free

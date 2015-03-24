@@ -15,14 +15,20 @@ import Data.Monoid
 import Data.Proxy
 import Data.Text
 import Control.Monad.Trans.Either
+import Data.Foldable(traverse_)
 import GHC.Generics
+import Control.Applicative
 import Network.Wai
+import Control.Arrow
 import Network.Wai.Handler.Warp
 
 import Servant
 import Servant.Docs
 import Servant.Utils.Links
 import Servant.Client
+
+note :: a -> Maybe b -> Either a b
+note a = maybe (Left a) Right
 
 -- * Example
 
@@ -37,8 +43,8 @@ instance ToFormUrlEncoded Name where
     toFormUrlEncoded (Name full) = [("full_name", full)]
 
 instance FromFormUrlEncoded Name where
-    fromFormUrlEncoded [("full_name", full)] = Right $ Name full
-    fromFormUrlEncoded _                     = Left "specify full_name"
+    fromFormUrlEncoded xs =
+        Name <$> note "specify full_name" (lookup "full_name" xs)
 
 instance FromJSON PersonalisedCard
 instance ToJSON PersonalisedCard
@@ -102,7 +108,7 @@ instance ToParam (QueryFlag "loud") where
                   ["true", "false"]
                   "Get the personalised card loudly.\
                   \ Default is false."
-                  Normal
+                  Flag
 
 instance ToSample [Int] where
   toSample = Just [4] -- Fair dice roll
@@ -166,7 +172,8 @@ main = do
     print $ safeLink cardApi nums 
 
     let make_card = Proxy :: Proxy ("v1.0.0" :> MakeCard)
-    print $ safeLink cardApi make_card True
+    let f :: Bool -> URI = safeLink cardApi make_card
+    traverse_ print [f True, f False]
 
     let url = BaseUrl Http "localhost" 8001
     -- runEitherT (createCard True (Name "Hubert Cumberdale") url)  >>= print
