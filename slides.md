@@ -1,20 +1,26 @@
 % Your Web Service as a Type
 % (Typing REST APIs with Servant)
 
-# Every time we write a REST API
+# I am
 
-Your API will...
+* Christian Marie (pingu on IRC).
+* Employed by Anchor Systems, a managed cloud hosting provider.
+* Recently, a developer of Servant.
 
-* Explode in subtle ways
-* Boilerplate gets mixed with important business logic
-* Complexity becomes nightmare to maintain
-* Becomes partially and/or inconsistently documented
+# Every time you try to webservice
 
-# Servant is...
+Your REST API decides to...
+
+* Break in subtle ways
+* Mix boilerplate with important business logic
+* Become infinitely complex
+* Become partially and/or inconsistently documented
+
+# Servant - type combinators for webservice APIs
 
 * A collection of libraries built around the concept of typed APIs.
-* n devs
-* n commercial users
+* Six developers
+* At least two commercial users (Zalora, Anchor)
 * About to hit a 0.3 release with some major improvements.
 
 # Your API wants types
@@ -25,7 +31,7 @@ Your API will...
 
 *REST problems*
 
-* Explode in subtle ways
+* Break in subtle ways
 * Boilerplate gets mixed with important business logic
 * Complexity becomes nightmare to maintain
 * Becomes partially and/or inconsistently documented
@@ -35,21 +41,21 @@ Your API will...
 
 *Types can fix that!*
 
-* Explode in obvious ways
+* Explode at compile time
 * Make generic programming an option
 * Provide a framework for complexity
 * Provide documentation, with 100% coverage
 
 [/columns]
 
-# How do you even?
+# How do you even API as type?
 
-How do we represent our API as a type?
+![It is okay. I might know how to do this.](might-idea.jpg)
 
-First, let's look at it like a tree:
+# Thought experiment: Your API as a tree.
 
 * Leaves are endpoints (GET, POST, etc)
-* Nodes along the way to leaves "modify" that endpoint.
+* Internal nodes "modify" the endpoint that they lead to.
 
 
 # APIs have shapes
@@ -84,15 +90,13 @@ First, let's look at it like a tree:
 
 ```haskell
 data (path :: k) :> a
-    deriving (Typeable)
-    infixr 9 :>
+infixr 9 :>
 ```
 
 [column=0.5]
 
 ```haskell
 data a :<|> b = a :<|> b
-    deriving (Typeable, Eq, Show)
 infixr 8 :<|>
 ```
 
@@ -206,42 +210,24 @@ frob widget :: FrobResult (EatsBools :> MeaningOfLife)
 > :t x
 ```
 
-# The results
+. . . 
 
-```haskell
-> :t frob
-frob :: Frobable a => Proxy a -> FrobResult a
-
-> :t widget
-widget :: Proxy (EatsBools :> MeaningOfLife)
-
-> :t frob widget
-frob widget :: FrobResult (EatsBools :> MeaningOfLife)
-
-> let x = frob widget
-> :t x
+``` haskell
 x :: Bool -> Maybe Int
 ```
 
 # Recap
 
-* APIs are painful, we are currently trying to apply the type band-aids.
-* The tree-like shape of your API can be expressed with types.
-* Adding Type families and Proxies allow us to take an API type and manipulate
-  it into another type, as we please.
+* Your API has a tree-like shape.
+* The tree-like shape of your API can be expressed with a type.
+* Servant defines some type operators: (:>) and (:<|>).
+* DataKinds, TypeLits and Proxies help us write this type.
+* Type families allow us to take an API type and manipulate it.
 
-# Ugly server boilerplate
+# Types for clarity
 
-Ugly server code often tries to business logic whilst...
-
-* Parsing/printing
-* Web servering
-* HTTPing
-
-# Types help us do the things better
-
-Let's see if we can express our business logic by itself, and cram all of the
-boiler plate into instances somewhere.
+Let's take what we've learned and see if we can express our business logic by
+itself, free of boilerplate.
 
 # HasServer, a dumping ground for boilerplate
 
@@ -281,7 +267,7 @@ instance (HasServer a, HasServer b) =>
           pb = Proxy :: Proxy b
 ```
 
-# Unwravelling the type one step at a time
+# Unravelling the type one step at a time
 
 ```haskell
 instance (KnownSymbol sym, FromText a, HasServer sub)
